@@ -23,7 +23,11 @@ pub(in crate::engine::query) fn matches_keys(
     for variants in readings {
         next.fill(false);
         for reading in variants {
-            let plain = reading.plain().replace('ü', "v");
+            // 与 lexicon 词库生成规则一致：成音节的 n / ng（如“嗯”）用 en 输入。
+            let plain = match reading.plain() {
+                "n" | "ng" => "en".to_owned(),
+                plain => plain.replace('ü', "v"),
+            };
             let expanded = fuzzy.expand(&[SyllablePattern::complete(canonical_syllable(&plain))]);
             for form in expanded.positions().into_iter().flatten() {
                 let full = canonical_syllable(form.text);
@@ -81,6 +85,54 @@ mod tests {
         assert_eq!(matches_keys("yinxing", "银行"), Some(true));
         assert_eq!(matches_keys("nvhai", "女孩"), Some(true));
         assert_eq!(matches_keys("jvzi", "句子"), Some(true));
+    }
+
+    #[test]
+    fn syllabic_n_uses_the_product_dictionary_spelling() {
+        assert_eq!(matches_keys("en", "嗯"), Some(true));
+        assert_eq!(matches_keys("enjintwyaoqu", "嗯今天我要去"), Some(true));
+        assert_eq!(matches_keys("enjintwyaoqu", "嗯今他要去"), Some(false));
+    }
+
+    #[test]
+    fn generated_en_reading_can_lead_a_different_dictionary_candidate() {
+        use std::sync::Arc;
+
+        use qingjian_dictionary::Dictionary;
+
+        use crate::candidate::CandidateKind;
+        use crate::engine::Engine;
+
+        use super::super::fixture::Generates;
+
+        let dictionary = Dictionary::parse("恩今天我要去\ten jin tian wo yao qu\t10000\n").unwrap();
+        let mut engine = Engine::new(dictionary).with_sentence_scorer(
+            Box::new(Generates {
+                texts: vec!["嗯今天我要去", "嗯今他要去"],
+                calls: Arc::default(),
+            }),
+            None,
+            None,
+            None,
+        );
+        engine.set_input("enjintwyaoqu");
+        let query = engine.query().unwrap();
+        assert_eq!(query.candidates.items[0].text, "嗯今天我要去");
+        assert_eq!(query.candidates.items[0].kind, CandidateKind::Generated);
+        assert!(
+            query
+                .candidates
+                .items
+                .iter()
+                .any(|c| c.text == "恩今天我要去")
+        );
+        assert!(
+            !query
+                .candidates
+                .items
+                .iter()
+                .any(|c| c.text == "嗯今他要去")
+        );
     }
 
     #[test]
