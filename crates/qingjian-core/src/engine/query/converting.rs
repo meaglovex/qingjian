@@ -1,6 +1,12 @@
 //! 整句候选：把词图里重排过的前几条路径变成候选，以及整句转换本身。
 
-use super::*;
+use crate::candidate::{Candidate, CandidateKind};
+use crate::engine::{ALTERNATE_MIN_SYLLABLES, Engine, Learner, RESCORE_PATHS, SENTENCE_CANDIDATES};
+use crate::parser::{self, Segmentation};
+use crate::sentence::{self, Conversion};
+
+use super::generating::{matches_keys, resolved_abbreviation};
+use super::{EnglishTail, leading_english};
 
 impl Engine {
     /// 整句候选。没有英文尾段时是整段拼音的转换（[`Self::plain_sentence`]），排在开头的英文候选之后。
@@ -40,8 +46,10 @@ impl Engine {
                 let alternates = !self.scope_is_english_word();
                 let sentences = self.plain_sentence(items, best, typos, alternates);
                 let position = leading_english(items);
-                // 词图读不通整段时模型直接生成的整句排在词图那几条前面：这时词图给的是把英文段
-                // 硬读成拼音的结果（`yongdockerbushuhenfangbian` → 用的哦乘客仍不熟很方便），排它前面没有可惜的
+                let abbreviation =
+                    resolved_abbreviation(best, keys, !typos, sentences.iter().chain(items.iter()));
+                // 生成结果没有音节对齐。合法简拼已有完整候选时，不能由漏字或错读音的生成句挤掉它；
+                // 中英混输与真正读不通的输入仍沿用生成兜底。
                 // `typos` 为假就是拼写纠错已经生效（见调用处），那时 `best` 是纠正后的切分
                 let generated: Vec<Candidate> = self
                     .generated_sentence_candidates(best, keys, !typos)
@@ -51,6 +59,11 @@ impl Engine {
                             .iter()
                             .chain(sentences.iter())
                             .any(|c| c.text == g.text)
+                    })
+                    .filter(|g| {
+                        !abbreviation
+                            || !g.text.chars().all(sentence::is_han)
+                            || matches_keys(keys, &g.text, &self.fuzzy) != Some(false)
                     })
                     .collect();
                 let generated_count = generated.len();

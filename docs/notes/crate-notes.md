@@ -145,12 +145,17 @@ P2C 自由生成实验：`--eval-text <集> --eval-generate data/models/hanzhang
 量的是重排这层架构的上限代价；2081 句上首选 51.9% / 前五 73.5%，对比重排路径的 42.3% / 45.5%，两条路互补（只有生成对 16.5%、只有重排对 6.9%），
 代价是 `O(生成字数)` 次串行前向。数字与取舍见 [neural-rescoring.md](neural-rescoring.md)。
 
-**模型直接生成的整句**（`engine/query/generating.rs`，候选类型 `CandidateKind::Generated`）：词图只会把整段按键读成拼音，
+**模型直接生成的整句**（`engine/query/generating/mod.rs`，候选类型 `CandidateKind::Generated`）：词图只会把整段按键读成拼音，
 中英混输（`yongdockerbushuhenfangbian`）与生词在它那里根本没有路径，出来的只能是把英文段硬读成拼音的废话（用的哦乘客仍不熟很方便）。
 词图读不通整段时改问 `SentenceScorer::generate`（P2C 走 `P2c::convert`，字级模型返回空），生成的整句插在词图那几条前面。
 「读不通」三条：最优切分里有不完整音节、切分没覆盖到末尾（`woyongvscodexiedaima` 的 `v` 起不了音节）、拼写纠错生效
 （`womaileyigeiphone` 的 `phone` 被当成敲错的 `paone`）。拼音干净的输入一条都不触发，常态零成本；
 异步打分器下走同一次 `request_rescoring`（`Job.generate`），按键回调不等它。
+不完整音节也可能是合法简拼。输入未纠错、主切分覆盖全部按键、所有不完整音节都是合法声母，且已有纯汉字候选的逐字读音
+完整匹配该切分时，校验纯汉字生成结果能否按读音完整消耗原按键；无法匹配的才过滤。整句候选和整段词库词都参与触发检查。
+校验使用 `pinyin` 的只读多音字表（MIT，仅启用 plain/heteronym），在单个生成文本与按键边界上做动态规划，允许全拼、声母缩写、
+多音字、ü 别名和已有模糊音规则；不受主切分限制，也不产生新句子。缺少字音证据时不剔除。
+例如 `jintwyaoqu` 的“今天我要去”不能被模型漏掉 `w` 后生成的“今他要去”挤走。包含英文的生成候选、未覆盖输入和纠错场景仍保留原兜底。
 `GENERATE_BEAM` = 5、`GENERATE_MAX_CHARS` = 32、`GENERATED_CANDIDATES` = 2、`MIN_GENERATED_LETTERS` = 6；双拼 / 注音不走（按键不是模型见过的字母）。
 生成的候选没有音节对齐，上屏吃掉整段作用域、不记学习。漏的是「英文词本身就是合法拼音」那种（`zhegeapihenhaoyong` 的 `api` 读成 `a pi`），
 光看切分分不出来。

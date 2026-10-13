@@ -5,3 +5,4 @@
 - `dict.tsv`：`词\t音节\t词频`
 - `glossary-en.tsv` / `glossary-ja.tsv` / `glossary-vi.tsv` / `glossary-de.tsv`：`词\t[词性. ]译文[\t[词性. ]译文]`，每个文件一种学习语言（德语名词带定冠词）
 - `english.tsv`：英文模式候选用的词表，`词\t编码\t词频`（与 `data/generated/english.tsv` 同格式）
+- `eval-abbreviation.tsv`：混合简拼与中英混输回归，`目标文本\t输入按键`，覆盖生成候选漏读按键和合法的其他切分。
